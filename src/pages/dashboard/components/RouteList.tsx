@@ -1,89 +1,165 @@
-/* eslint-disable @typescript-eslint/no-misused-promises */
 import {
   createEffect,
-  createResource,
   createSignal,
   For,
-  Suspense,
+  onCleanup,
+  onMount,
 } from 'solid-js'
-import type { VoidComponent } from 'solid-js'
+import type { Component } from 'solid-js'
 import clsx from 'clsx'
-
 import type { RouteSegments } from '~/types'
-
+import { Virtualizer, createVirtualizer } from '@tanstack/solid-virtual'
 import RouteCard from '~/components/RouteCard'
 import { fetcher } from '~/api'
-import Button from '~/components/material/Button'
 
-const PAGE_SIZE = 3
+const PAGE_SIZE = 6
 
 type RouteListProps = {
   class?: string
   dongleId: string
 }
 
-const pages: Promise<RouteSegments[]>[] = []
+const endpoint = (dongleId: string) => `/v1/devices/${dongleId}/routes_segments?limit=${PAGE_SIZE}`
 
-const RouteList: VoidComponent<RouteListProps> = (props) => {
-  const endpoint = () => `/v1/devices/${props.dongleId}/routes_segments?limit=${PAGE_SIZE}`
-  const getKey = (previousPageData?: RouteSegments[]): string | undefined => {
-    if (!previousPageData) return endpoint()
-    if (previousPageData.length === 0) return undefined
-    const lastSegmentEndTime = previousPageData.at(-1)!.segment_start_times.at(-1)!
-    return `${endpoint()}&end=${lastSegmentEndTime - 1}`
-  }
-  const getPage = (page: number): Promise<RouteSegments[]> => {
-    if (!pages[page]) {
-      // eslint-disable-next-line no-async-promise-executor
-      pages[page] = new Promise(async (resolve) => {
-        const previousPageData = page > 0 ? await getPage(page - 1) : undefined
-        const key = getKey(previousPageData)
-        resolve(key ? fetcher<RouteSegments[]>(key) : [])
+const getKey = (dongleId: string, previousPageData?: RouteSegments[]): string | undefined => {
+  if (!previousPageData) return endpoint(dongleId)
+  if (previousPageData.length === 0) return undefined
+  const lastSegment = previousPageData.at(-1)!
+  const lastSegmentEndTime = lastSegment.segment_start_times ? lastSegment.segment_start_times.at(-1) : undefined
+  return lastSegmentEndTime ? `${endpoint(dongleId)}&end=${lastSegmentEndTime - 1}` : undefined
+}
+
+// Helper function for sorting routes based on filter
+const sortRoutes = (routes: RouteSegments[], filter: string, currentFilter: () => string): RouteSegments[] => {
+  switch (currentFilter()) {
+    case 'date':
+      return routes.sort((a, b) => new Date(b.start_time || '').getTime() - new Date(a.start_time || '').getTime())
+    case 'miles':
+      return routes.slice().sort((a, b) => (b.length || 0) - (a.length || 0))
+    case 'duration':
+      return routes.slice().sort((a, b) => {
+        const aDuration = new Date(a.end_time || '').getTime() - new Date(a.start_time || '').getTime()
+        const bDuration = new Date(b.end_time || '').getTime() - new Date(b.start_time || '').getTime()
+        return bDuration - aDuration
       })
-    }
-    return pages[page]
+    default:
+      return routes.sort((a, b) => new Date(b.start_time || '').getTime() - new Date(a.start_time || '').getTime())
   }
+}
+
+const logError = (message: string, error: unknown) => {
+  if (error instanceof Error) {
+    console.error(message, error.message)
+  } else {
+    console.error(message, error)
+  }
+}
+
+const RouteList: Component<RouteListProps> = (props) => {
+  const [hasMore, setHasMore] = createSignal(true)
+  const [isLoading, setIsLoading] = createSignal(false)
+  const [routes, setRoutes] = createSignal<RouteSegments[]>([])
+  const [currentFilter, setCurrentFilter] = createSignal('date')
+  const [loaderRef, setLoaderRef] = createSignal<HTMLDivElement | null>(null)
+
+  let virtualizer: Virtualizer<HTMLDivElement, Element>
 
   createEffect(() => {
-    if (props.dongleId) {
-      pages.length = 0
-      setSize(1)
-    }
+    virtualizer = createVirtualizer<HTMLDivElement, Element>({
+      getScrollElement: () => loaderRef(),
+      count: routes().length,
+      estimateSize: () => 50,
+      overscan: 10,
+    })
   })
 
-  const [size, setSize] = createSignal(1)
-  const onLoadMore = () => setSize(size() + 1)
-  const pageNumbers = () => Array.from(Array(size()).keys())
+  const fetchMore = async () => {
+    setIsLoading(true)
+    try {
+      const previousPageData = routes()
+      const key = getKey(props.dongleId, previousPageData)
+      const newRoutes = key ? await fetcher<RouteSegments[]>(key) : []
+
+      if (newRoutes.length < PAGE_SIZE) {
+        setHasMore(false)
+      }
+
+      setRoutes((prevRoutes) => [...prevRoutes, ...newRoutes])
+      virtualizer.calculateRange()
+    } catch (error) {
+      logError('Error fetching more routes:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  onMount(() => {
+    void (async () => {
+      try {
+        const initialRoutes = await fetcher<RouteSegments[]>(endpoint(props.dongleId))
+        setRoutes(initialRoutes)
+      } catch (error) {
+        logError('Error fetching initial routes:', error)
+      }
+    })()
+
+    const loader = loaderRef()
+    if (loader) {
+      const observer = new IntersectionObserver((entries) => {
+        const first = entries[0]
+        if (first.isIntersecting && hasMore() && !isLoading() && routes().length > 0) {
+          fetchMore().catch((error) => logError('Error in fetchMore:', error))
+        }
+      })
+
+      observer.observe(loader)
+      onCleanup(() => observer.disconnect())
+    }
+  })
 
   return (
     <div
       class={clsx(
-        'flex w-full flex-col justify-items-stretch gap-4',
+        'flex w-full flex-col',
         props.class,
       )}
+      style={{ height: 'calc(100vh - 72px - 5rem)' }}
     >
-      <For each={pageNumbers()}>
-        {(i) => {
-          const [routes] = createResource(() => i, getPage)
-          return (
-            <Suspense
-              fallback={
-                <>
-                  <div class="skeleton-loader elevation-1 flex h-[336px] max-w-md flex-col rounded-lg bg-surface-container-low" />
-                  <div class="skeleton-loader elevation-1 flex h-[336px] max-w-md flex-col rounded-lg bg-surface-container-low" />
-                  <div class="skeleton-loader elevation-1 flex h-[336px] max-w-md flex-col rounded-lg bg-surface-container-low" />
-                </>
-              }
-            >
-              <For each={routes()}>
-                {(route) => <RouteCard route={route} />}
-              </For>
-            </Suspense>
-          )
-        }}
-      </For>
-      <div class="flex justify-center">
-        <Button onClick={onLoadMore}>Load more</Button>
+      <div class="hide-scrollbar flex w-full items-center gap-5 overflow-x-auto overflow-y-hidden pb-7 pt-4">
+        <p class="my-auto pb-1">Sort by:</p>
+        <div
+          class={`filter-custom-btn ${currentFilter() === 'date' ? 'selected-filter-custom-btn' : ''}`}
+          onClick={() => setCurrentFilter('date')}
+        >
+          Date
+        </div>
+        <div
+          class={`filter-custom-btn ${currentFilter() === 'miles' ? 'selected-filter-custom-btn' : ''}`}
+          onClick={() => setCurrentFilter('miles')}
+        >
+          Miles
+        </div>
+        <div
+          class={`filter-custom-btn ${currentFilter() === 'duration' ? 'selected-filter-custom-btn' : ''}`}
+          onClick={() => setCurrentFilter('duration')}
+        >
+          Duration
+        </div>
+      </div>
+      <div class="hide-scrollbar lg:custom-scrollbar flex size-full flex-col overflow-y-auto lg:pr-[50px]">
+        <div class="flex w-fit flex-col gap-6">
+          <For each={sortRoutes(routes(), currentFilter(), currentFilter)}>
+            {(route) => (
+              <RouteCard route={route} />
+            )}
+          </For>
+
+          {/* Filler element to push messages to the bottom */}
+          <div ref={setLoaderRef} style={{ height: '1px' }} />
+        </div>
+       
+        {isLoading() && <p class="pb-8">Loading...</p>}
+        {!hasMore() && !isLoading() && <p class="pb-8">No More Routes</p>}
       </div>
     </div>
   )

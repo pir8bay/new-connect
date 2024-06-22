@@ -214,6 +214,52 @@
     }
   }
 
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-secondary-container) var(--color-surface);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--color-primary);
+    border-radius: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background-color: var(--color-surface);
+  }
+
+  .filter-custom-btn {
+    font-size: 13px !important;
+    font-weight: 500;
+    width: fit-content;
+    height: fit-content;
+    padding: 3px 17px;
+    border-radius: 20px;
+    border: 1px solid #4b4b4b;
+    background-color: #4b4b4b;
+    color: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .filter-custom-btn:hover {
+    background-color: #3a3a3a;
+  }
+
+  .selected-filter-custom-btn {
+    background-color: #bbc4fd;
+    color: #000;
+    cursor: default;
+  }
+
+  .selected-filter-custom-btn:hover {
+    background-color: #bbc4fd;
+  }
+
   .custom-card {
     cursor: pointer;
     background-color: var(--color-surface-container-low);

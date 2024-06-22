@@ -1,5 +1,5 @@
 import { createResource, Suspense, useContext } from 'solid-js'
-import type { VoidComponent } from 'solid-js'
+import type { Component } from 'solid-js'
 
 import { getDevice } from '~/api/devices'
 
@@ -15,7 +15,7 @@ type DeviceActivityProps = {
   dongleId: string
 }
 
-const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
+const DeviceActivity: Component<DeviceActivityProps> = (props) => {
   const { toggleDrawer } = useContext(DashboardContext)!
 
   const [device] = createResource(() => props.dongleId, getDevice)
@@ -25,7 +25,7 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
       <TopAppBar leading={<IconButton onClick={toggleDrawer}>menu</IconButton>}>
         {deviceName()}
       </TopAppBar>
-      <div class="flex flex-col gap-4 px-4 pb-4">
+      <div class="flex flex-col gap-4 px-4">
         <div class="h-[72px] overflow-hidden rounded-lg bg-surface-container-low">
           <Suspense fallback={<div class="skeleton-loader size-full" />}>
             <div class="p-4">
@@ -33,8 +33,7 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
             </div>
           </Suspense>
         </div>
-        <div class="flex w-fit flex-col gap-2">
-          <span class="text-label-sm">Routes</span>
+        <div class="flex w-full flex-col gap-2">
           <RouteList dongleId={props.dongleId} />
         </div>
       </div>
