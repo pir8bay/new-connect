@@ -98,7 +98,7 @@ const DashboardLayout: VoidComponent = () => {
             <RouteActivity dongleId={dongleId()} dateStr={dateStr()} />
           </Match>
           <Match when={dongleId()} keyed>
-            <DeviceActivity dongleId={dongleId()} />
+            <DeviceActivity dongleId={dongleId()} devices={devices()} />
           </Match>
           <Match when={devices()?.length} keyed>
             <Navigate href={`/${devices()![0].dongle_id}`} />
